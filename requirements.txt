@@ -1,0 +1,28 @@
+# Core dependencies dengan versi yang kompatibel
+numpy==1.24.3
+opencv-python==4.7.0.68
+pandas==2.0.3
+Pillow==9.4.0
+scikit-learn==1.2.1
+scikit-image==0.19.3
+tqdm==4.63.0
+
+# Gradio - gunakan versi yang lebih stabil
+gradio==4.7.1
+
+# PSD tools
+pytoshop==1.2.1
+psd-tools==1.9.24
+
+# ONNX (gunakan CPU version yang lebih stabil)
+onnx==1.14.1
+onnxruntime==1.15.1
+
+# AI/ML dependencies
+huggingface_hub==0.16.4
+segment_anything==1.0
+torch==2.0.1
+einops==0.6.1
+
+# Utilities
+requests==2.31.0
