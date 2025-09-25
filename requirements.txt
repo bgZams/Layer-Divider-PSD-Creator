@@ -1,20 +1,20 @@
-# Core dependencies dengan versi yang kompatibel
+# Core dependencies
 numpy==1.24.3
-opencv-python==4.7.0.68
+opencv-python==4.7.0.72
 pandas==2.0.3
-Pillow==9.4.0
+Pillow>=10.3.0
 scikit-learn==1.2.1
 scikit-image==0.19.3
 tqdm==4.63.0
 
-# Gradio - gunakan versi yang lebih stabil
+# Gradio
 gradio==4.7.1
 
-# PSD tools
+# PSD tools - Fixed versions
 pytoshop==1.2.1
-psd-tools==1.9.24
+psd-tools==1.9.31
 
-# ONNX (gunakan CPU version yang lebih stabil)
+# ONNX
 onnx==1.14.1
 onnxruntime==1.15.1
 
@@ -26,3 +26,6 @@ einops==0.6.1
 
 # Utilities
 requests==2.31.0
+
+# Additional dependencies that might be missing
+packbits

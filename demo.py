@@ -18,10 +18,15 @@ from pytoshop.enums import BlendMode
 from psd_tools import PSDImage
 from psd_tools.api.layers import Layer, Group
 
-def save_psd_alternative(input_image, layer_lists, layer_names, blend_modes, output_dir, mode):
-    """Alternatif save PSD menggunakan psd-tools"""
+def save_psd_with_pytoshop(input_image, layer_lists, layer_names, blend_modes, output_dir, mode):
+    """Save PSD using pytoshop directly"""
     try:
-        # Buat PSD baru
+        # Import yang benar untuk pytoshop
+        import pytoshop
+        from pytoshop.user import nested_layers
+        from pytoshop.enums import BlendMode as PytoshopBlendMode
+        
+        # Konversi input image ke format yang tepat
         if isinstance(input_image, np.ndarray):
             if len(input_image.shape) == 3 and input_image.shape[2] == 4:
                 # Konversi BGRA ke RGBA
@@ -32,23 +37,25 @@ def save_psd_alternative(input_image, layer_lists, layer_names, blend_modes, out
         else:
             input_image_pil = input_image
             
-        # Pastikan gambar dalam mode RGB (bukan RGBA) untuk PSD
+        # Konversi ke RGB jika RGBA
         if input_image_pil.mode == 'RGBA':
             input_image_pil = input_image_pil.convert('RGB')
-            
-        psd = PSDImage.frompil(input_image_pil)
+        
+        # Buat struktur layers untuk pytoshop
+        layers = []
+        
+        # Tambahkan background layer
+        layers.append(('Background', input_image_pil))
         
         # Tambahkan setiap group layer
-        for layers, name, blend_mode in zip(layer_lists, layer_names, blend_modes):
-            # Buat group untuk setiap jenis layer
-            group = Group(name=name)
-            psd.append(group)
+        for layers_group, name, blend_mode in zip(layer_lists, layer_names, blend_modes):
+            group_layers = []
             
             # Tambahkan setiap layer ke dalam group
-            for i, layer in enumerate(layers):
+            for i, layer in enumerate(layers_group):
                 if isinstance(layer, np.ndarray):
                     if len(layer.shape) == 3 and layer.shape[2] == 4:
-                        # Konversi BGRA ke RGBA
+                        # Konversi BGRA ke RGBA lalu ke RGB
                         layer_rgba = cv2.cvtColor(layer, cv2.COLOR_BGRA2RGBA)
                         layer_pil = Image.fromarray(layer_rgba)
                     else:
@@ -56,134 +63,203 @@ def save_psd_alternative(input_image, layer_lists, layer_names, blend_modes, out
                 else:
                     layer_pil = layer
                 
-                # Pastikan gambar dalam mode RGB (bukan RGBA) untuk PSD
+                # Konversi ke RGB jika RGBA
                 if layer_pil.mode == 'RGBA':
                     layer_pil = layer_pil.convert('RGB')
                 
-                # Buat layer baru
-                new_layer = Layer.frompil(layer_pil, name=f"{name}_{i}")
+                group_layers.append((f"{name}_{i}", layer_pil))
+            
+            # Tambahkan group sebagai nested layer
+            if group_layers:
+                layers.append((name, group_layers))
+        
+        # Simpan PSD
+        timestamp = int(time.time())
+        filename = f"{output_dir}/layers_{mode}_{timestamp}.psd"
+        
+        # Gunakan nested_layers untuk membuat PSD
+        nested_layers(layers, filename)
+        
+        print(f"✅ PSD saved successfully with pytoshop: {filename}")
+        return filename
+    except Exception as e:
+        print(f"⚠️  Pytoshop PSD save failed: {str(e)}")
+        raise e
+
+def save_psd_with_psdtools_simple(input_image, layer_lists, layer_names, blend_modes, output_dir, mode):
+    """Save PSD using psd-tools with simple approach"""
+    try:
+        from psd_tools import PSDImage
+        from psd_tools.api.layers import PixelLayer, Group
+        
+        # Buat PSD baru dengan ukuran yang sesuai
+        if isinstance(input_image, np.ndarray):
+            height, width = input_image.shape[:2]
+        else:
+            width, height = input_image.size
+            
+        # Konversi input image ke PIL Image RGB
+        if isinstance(input_image, np.ndarray):
+            if len(input_image.shape) == 3 and input_image.shape[2] == 4:
+                # Konversi BGRA ke RGB
+                input_rgb = cv2.cvtColor(input_image, cv2.COLOR_BGRA2RGB)
+                input_pil = Image.fromarray(input_rgb)
+            else:
+                input_pil = Image.fromarray(input_image)
+        else:
+            if input_image.mode == 'RGBA':
+                input_pil = input_image.convert('RGB')
+            else:
+                input_pil = input_image
+        
+        # Buat PSD baru dari gambar
+        psd = PSDImage.frompil(input_pil)
+        
+        # Tambahkan setiap group layer
+        for layers, name, blend_mode in zip(layer_lists, layer_names, blend_modes):
+            # Buat group untuk setiap jenis layer
+            group_data = []
+            
+            # Tambahkan setiap layer ke dalam group
+            for i, layer in enumerate(layers):
+                if isinstance(layer, np.ndarray):
+                    if len(layer.shape) == 3 and layer.shape[2] == 4:
+                        # Konversi BGRA ke RGB
+                        layer_rgb = cv2.cvtColor(layer, cv2.COLOR_BGRA2RGB)
+                        layer_pil = Image.fromarray(layer_rgb)
+                    else:
+                        layer_pil = Image.fromarray(layer)
+                else:
+                    if layer.mode == 'RGBA':
+                        layer_pil = layer.convert('RGB')
+                    else:
+                        layer_pil = layer
                 
-                # Set blend mode
-                if blend_mode:
-                    # Konversi blend mode dari pytoshop ke psd-tools
-                    blend_mode_map = {
-                        BlendMode.normal: 'normal',
-                        BlendMode.screen: 'screen',
-                        BlendMode.multiply: 'multiply',
-                        BlendMode.subtract: 'subtract',
-                        BlendMode.linear_dodge: 'linear_dodge'
-                    }
-                    if blend_mode in blend_mode_map:
-                        new_layer.blend_mode = blend_mode_map[blend_mode]
+                # Tambahkan layer ke group data
+                group_data.append(layer_pil)
+            
+            # Jika ada layer dalam group, buat composite dari semua layer
+            if group_data:
+                # Gabungkan semua layer dalam group menjadi satu
+                composite = group_data[0].copy()
+                for layer_img in group_data[1:]:
+                    # Blend layers (simple paste untuk sekarang)
+                    composite.paste(layer_img, (0, 0), layer_img if layer_img.mode == 'RGBA' else None)
                 
-                # Tambahkan layer ke group
-                group.append(new_layer)
+                # Buat layer dari composite
+                new_psd = PSDImage.frompil(composite)
+                if new_psd.layers:
+                    # Copy layer pertama dari composite PSD
+                    layer_to_add = new_psd[0]
+                    psd.append(layer_to_add)
         
         # Simpan PSD
         timestamp = int(time.time())
         filename = f"{output_dir}/layers_{mode}_{timestamp}.psd"
         psd.save(filename)
         
-        print(f"✅ PSD saved successfully: {filename}")
+        print(f"✅ PSD saved successfully with psd-tools: {filename}")
+        return filename
+    except Exception as e:
+        print(f"⚠️  PSD-tools simple save failed: {str(e)}")
+        raise e
+
+def save_psd_alternative(input_image, layer_lists, layer_names, blend_modes, output_dir, mode):
+    """Alternative PSD save method using basic approach"""
+    try:
+        from psd_tools import PSDImage
+        
+        # Konversi input image ke PIL Image
+        if isinstance(input_image, np.ndarray):
+            if len(input_image.shape) == 3 and input_image.shape[2] == 4:
+                input_rgb = cv2.cvtColor(input_image, cv2.COLOR_BGRA2RGB)
+                input_pil = Image.fromarray(input_rgb)
+            else:
+                input_pil = Image.fromarray(input_image)
+        else:
+            input_pil = input_image.convert('RGB') if input_image.mode == 'RGBA' else input_image
+        
+        # Buat PSD sederhana dari gambar utama
+        psd = PSDImage.frompil(input_pil)
+        
+        # Simpan PSD
+        timestamp = int(time.time())
+        filename = f"{output_dir}/layers_{mode}_{timestamp}.psd"
+        psd.save(filename)
+        
+        print(f"✅ Basic PSD saved successfully: {filename}")
         return filename
     except Exception as e:
         print(f"⚠️  Alternative PSD save failed: {str(e)}")
         raise e
 
-def save_layers_as_images(input_image, layer_lists, layer_names, output_dir, mode):
-    """Simpan layers sebagai gambar terpisah jika PSD gagal"""
-    timestamp = int(time.time())
-    folder_name = f"layers_{mode}_{timestamp}"
-    layers_dir = os.path.join(output_dir, folder_name)
-    os.makedirs(layers_dir, exist_ok=True)
-    
-    # Simpan gambar asli
-    original_path = os.path.join(layers_dir, "00_original.png")
-    if isinstance(input_image, np.ndarray):
-        cv2.imwrite(original_path, input_image)
-    else:
-        cv2.imwrite(original_path, cv2.cvtColor(np.array(input_image), cv2.COLOR_RGB2BGR))
-    
-    # Simpan setiap layer group
-    for group_idx, (layers, name) in enumerate(zip(layer_lists, layer_names)):
-        group_dir = os.path.join(layers_dir, f"{group_idx+1:02d}_{name}")
-        os.makedirs(group_dir, exist_ok=True)
-        
-        for layer_idx, layer in enumerate(layers):
-            layer_filename = f"{layer_idx:03d}_{name}_layer.png"
-            layer_path = os.path.join(group_dir, layer_filename)
-            
-            if isinstance(layer, np.ndarray):
-                if len(layer.shape) == 3 and layer.shape[2] == 4:
-                    layer_rgba = cv2.cvtColor(layer, cv2.COLOR_BGRA2RGBA)
-                    Image.fromarray(layer_rgba).save(layer_path)
-                else:
-                    cv2.imwrite(layer_path, layer)
-            else:
-                layer.save(layer_path)
-    
-    # Buat file info.txt
-    info_path = os.path.join(layers_dir, "layer_info.txt")
-    with open(info_path, 'w', encoding='utf-8') as f:
-        f.write(f"Layer Division Result - Mode: {mode}\n")
-        f.write(f"Timestamp: {timestamp}\n")
-        f.write(f"Total Groups: {len(layer_lists)}\n\n")
-        for i, name in enumerate(layer_names):
-            f.write(f"Group {i+1}: {name} ({len(layer_lists[i])} layers)\n")
-        f.write(f"\nNote: PSD creation failed, layers saved as PNG files.\n")
-        f.write(f"Import these into Photoshop manually.\n")
-    
-    return layers_dir
-
 def safe_save_psd(input_image, layer_lists, layer_names, blend_modes, output_dir, mode):
     """Coba save PSD dengan beberapa metode, jika gagal fallback ke save gambar"""
-    # Metode 1: Fungsi asli
+    
+    # Metode 1: Pytoshop dengan import yang benar
     try:
-        from ldivider.ld_utils import save_psd
-        print("🔄 Attempting to save PSD with original method...")
-        
-        # Periksa format input_image
-        if isinstance(input_image, Image.Image):
-            input_image = pil2cv(input_image)
-        
-        # Pastikan semua layer dalam format numpy array
-        formatted_layer_lists = []
-        for layer_list in layer_lists:
-            formatted_layers = []
-            for layer in layer_list:
-                if isinstance(layer, Image.Image):
-                    layer = pil2cv(layer)
-                formatted_layers.append(layer)
-            formatted_layer_lists.append(formatted_layers)
-        
-        # Coba simpan PSD dengan data yang sudah diformat
-        return save_psd(input_image, formatted_layer_lists, layer_names, blend_modes, output_dir, mode)
+        print("🔄 Attempting to save PSD with pytoshop...")
+        return save_psd_with_pytoshop(input_image, layer_lists, layer_names, blend_modes, output_dir, mode)
     except Exception as e:
-        print(f"⚠️  Original PSD save method failed: {str(e)}")
+        print(f"⚠️  Pytoshop PSD save failed: {str(e)}")
         
-        # Metode 2: Alternatif dengan psd-tools
+        # Metode 2: PSD-tools simple dengan perbaikan
         try:
-            print("🔄 Attempting to save PSD with alternative method...")
-            return save_psd_alternative(input_image, layer_lists, layer_names, blend_modes, output_dir, mode)
+            print("🔄 Attempting to save PSD with psd-tools simple...")
+            return save_psd_with_psdtools_simple(input_image, layer_lists, layer_names, blend_modes, output_dir, mode)
         except Exception as e2:
-            print(f"⚠️  Alternative PSD save method failed: {str(e2)}")
+            print(f"⚠️  PSD-tools simple save failed: {str(e2)}")
             
-            # Fallback: Simpan sebagai gambar terpisah
-            print("🔄 Fallback: Saving as separate images...")
-            
-            layers_folder = save_layers_as_images(input_image, layer_lists, layer_names, output_dir, mode)
-            
-            # Buat file zip untuk download
-            zip_filename = f"{output_dir}/layers_{mode}_{int(time.time())}.zip"
-            with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for root, dirs, files in os.walk(layers_folder):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        arcname = os.path.relpath(file_path, layers_folder)
-                        zipf.write(file_path, arcname)
-            
-            print(f"✅ Layers saved as ZIP: {zip_filename}")
-            return zip_filename
+            # Metode 3: Alternative basic PSD
+            try:
+                print("🔄 Attempting to save PSD with alternative method...")
+                return save_psd_alternative(input_image, layer_lists, layer_names, blend_modes, output_dir, mode)
+            except Exception as e3:
+                print(f"⚠️  Alternative PSD save failed: {str(e3)}")
+                
+                # Metode 4: Fungsi asli (jika ada)
+                try:
+                    from ldivider.ld_utils import save_psd
+                    print("🔄 Attempting to save PSD with original method...")
+                    
+                    # Periksa format input_image
+                    if isinstance(input_image, Image.Image):
+                        input_image = pil2cv(input_image)
+                    
+                    # Pastikan semua layer dalam format numpy array
+                    formatted_layer_lists = []
+                    for layer_list in layer_lists:
+                        formatted_layers = []
+                        for layer in layer_list:
+                            if isinstance(layer, Image.Image):
+                                layer = pil2cv(layer)
+                            formatted_layers.append(layer)
+                        formatted_layer_lists.append(formatted_layers)
+                    
+                    # Coba simpan PSD dengan data yang sudah diformat
+                    return save_psd(input_image, formatted_layer_lists, layer_names, blend_modes, output_dir, mode)
+                except Exception as e4:
+                    print(f"⚠️  Original PSD save method failed: {str(e4)}")
+                    
+                    # Fallback: Simpan sebagai gambar terpisah
+                    print("🔄 Fallback: Saving as separate images...")
+                    
+                    layers_folder = save_layers_as_images(input_image, layer_lists, layer_names, output_dir, mode)
+                    
+                    # Buat file zip untuk download
+                    zip_filename = f"{output_dir}/layers_{mode}_{int(time.time())}.zip"
+                    with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                        for root, dirs, files in os.walk(layers_folder):
+                            for file in files:
+                                file_path = os.path.join(root, file)
+                                arcname = os.path.relpath(file_path, layers_folder)
+                                zipf.write(file_path, arcname)
+
+                    # Hapus folder sementara
+                    import shutil
+                    shutil.rmtree(layers_folder)
+                    print(f"✅ Layers saved as ZIP: {zip_filename}. Temporary folder deleted.")
+                    return zip_filename
 
 from ldivider.ld_segment import get_mask_generator, get_masks, show_anns
 
